@@ -1,0 +1,140 @@
+[
+  {
+    "id": 1,
+    "question": "How many loans were denied vs approved?",
+    "category": "simple_aggregation",
+    "difficulty": "easy",
+    "expected_sql_must_contain": ["action_taken", "GROUP BY"],
+    "expected_result_type": "table",
+    "notes": "Baseline. If this fails, something is fundamentally broken."
+  },
+  {
+    "id": 2,
+    "question": "What is the total dollar volume of all originated loans?",
+    "category": "filtered_aggregation",
+    "difficulty": "easy",
+    "expected_sql_must_contain": ["SUM", "loan_amount", "action_taken = 1"],
+    "expected_result_type": "scalar",
+    "expected_result": 116181685000,
+    "notes": "Tests that 'originated' triggers the action_taken=1 filter, not just any loan."
+  },
+  {
+    "id": 3,
+    "question": "Top 5 counties by total application count?",
+    "category": "join_and_group",
+    "difficulty": "medium",
+    "expected_sql_must_contain": ["JOIN", "ny_counties", "GROUP BY", "LIMIT 5"],
+    "expected_result_type": "table",
+    "expected_result_contains": "Suffolk",
+    "notes": "Tests JOIN to county lookup, returning names not codes."
+  },
+  {
+    "id": 4,
+    "question": "Top 5 counties with the highest approval rates, among counties with at least 1,000 applications",
+    "category": "join_with_having",
+    "difficulty": "hard",
+    "expected_sql_must_contain": ["JOIN", "HAVING", "1000"],
+    "expected_result_type": "table",
+    "notes": "Tests HAVING clause + reasoning about rate denominators."
+  },
+  {
+    "id": 5,
+    "question": "Compare the average loan amount for Manhattan vs Staten Island",
+    "category": "borough_mapping",
+    "difficulty": "medium",
+    "expected_sql_must_contain": ["JOIN", "ny_counties"],
+    "expected_result_type": "table",
+    "notes": "Tests the borough->county mapping hint in the schema."
+  },
+  {
+    "id": 6,
+    "question": "Show me the distribution of loan purposes as a percentage of all applications",
+    "category": "percentage_distribution",
+    "difficulty": "medium",
+    "expected_sql_must_contain": ["loan_purpose", "GROUP BY"],
+    "expected_result_type": "table",
+    "notes": "Tests percentage calculation and code-to-label reasoning."
+  },
+  {
+    "id": 7,
+    "question": "What is the average loan amount by applicant age group?",
+    "category": "categorical_grouping",
+    "difficulty": "medium",
+    "expected_sql_must_contain": ["applicant_age", "AVG", "GROUP BY"],
+    "expected_result_type": "table",
+    "notes": "applicant_age is a STRING (binned), not a number. Tests that the agent doesn't try to CAST or average it."
+  },
+  {
+    "id": 8,
+    "question": "What is the approval rate by primary applicant ethnicity?",
+    "category": "demographic_analysis",
+    "difficulty": "hard",
+    "expected_sql_must_contain": ["applicant_ethnicity_1", "GROUP BY"],
+    "expected_result_type": "table",
+    "notes": "Tests reasoning about multi-valued demographic columns using the _1 convention."
+  },
+  {
+    "id": 9,
+    "question": "How many applications came from applicants with income above 200,000 dollars?",
+    "category": "unit_handling",
+    "difficulty": "medium",
+    "expected_sql_must_contain": ["income"],
+    "expected_result_type": "scalar",
+    "expected_result": 96103,
+    "notes": "Income is in thousands. Correct filter: income > 200. Wrong filter: income > 200000. Pure schema-comprehension test."
+  },
+  {
+    "id": 10,
+    "question": "How many applications are from 2024?",
+    "category": "out_of_scope",
+    "difficulty": "adversarial",
+    "expected_result_type": "scalar",
+    "expected_result": 0,
+    "notes": "Data only contains 2025. Correct answer is 0. Tests whether the agent invents data or handles the empty result honestly."
+  },
+  {
+    "id": 11,
+    "question": "How many applications had no co-applicant?",
+    "category": "null_reasoning",
+    "difficulty": "medium",
+    "expected_sql_must_contain": ["co_applicant"],
+    "expected_result_type": "scalar",
+    "notes": "Tests whether the agent knows the 'no co-applicant' convention in HMDA. Correct approach: filter on co_applicant_sex = 5 (No co-applicant). Alternative valid: co_applicant_ethnicity_1 = 5 or co_applicant_race_1 = 5. Agent may incorrectly try IS NULL, which won't work because these are coded values, not nulls. The strict SQL check requires 'co_applicant' as a substring; the deeper check is whether the agent uses code 5 vs. NULL. Anything filtering on the right column but wrong value should still fail because the count will be wildly different from the true value."
+  },
+  {
+    "id": 12,
+    "question": "How many applicants identified as more than one race?",
+    "category": "multi_value_column_reasoning",
+    "difficulty": "hard",
+    "expected_sql_must_contain": ["applicant_race_2"],
+    "expected_result_type": "scalar",
+    "notes": "Tests reasoning about multi-valued race columns. Correct approach: count rows where applicant_race_2 IS NOT NULL (or != some sentinel). Many wrong approaches: counting distinct races in race_1 (meaningless), summing across columns (wrong shape), or trying to use applicant_race_observed (different concept). Skeptic check: the answer should be substantially smaller than the total row count - if the agent returns something close to total applications, it's almost certainly wrong. Manually verify the expected count before declaring this question 'passing'."
+  },
+  {
+    "id": 13,
+    "question": "Compare loan application volume between 2023 and 2025",
+    "category": "partial_out_of_scope",
+    "difficulty": "adversarial",
+    "expected_sql_must_contain": ["activity_year"],
+    "expected_result_type": "table",
+    "notes": "Data only contains 2025. The agent should produce SQL that filters or groups by activity_year - which will return only 2025 data (or 2025 + zero for 2023). The key failure modes to catch: (1) agent invents a comparison by hallucinating 2023 data, (2) agent generates SQL with no year filter, returning total volume as if it represents both years, (3) agent refuses entirely instead of returning what's actually available. Passing requires the SQL references activity_year explicitly. A human reviewer should also verify the agent didn't fabricate 2023 numbers in the output. Score this question manually if the automated check is ambiguous."
+  },
+  {
+    "id": 14,
+    "question": "Show me the high earners",
+    "category": "ambiguous_input",
+    "difficulty": "hard",
+    "expected_sql_must_contain": ["income"],
+    "expected_result_type": "table",
+    "notes": "Deliberately ambiguous - what is 'high'? Top decile? Above $200K? Above the median? Tests whether the agent makes a reasonable assumption and ideally surfaces it. Pass criteria: SQL filters on income with some explicit threshold OR uses a percentile function. Soft fail: agent returns all rows because it didn't filter. Hard fail: SQL doesn't reference income at all, or threshold is unreasonable (e.g., income > 1, which in thousands means $1K+ -> basically everyone). Manually inspect the threshold the agent chose - if it's < 100 (i.e. $100K) it's probably reasonable; if it's > 1000 ($1M+) it's filtering too aggressively. Either is technically 'a defensible choice' but I want the agent to be defensible."
+  },
+  {
+    "id": 15,
+    "question": "What is the most common loan purpose in the county with the highest denial rate?",
+    "category": "multi_step_reasoning",
+    "difficulty": "hard",
+    "expected_sql_must_contain": ["loan_purpose", "JOIN", "ny_counties"],
+    "expected_result_type": "row",
+    "notes": "Multi-step: requires either a subquery, CTE, or window function to (1) find the county with the highest denial rate, then (2) filter to that county and find its most common loan_purpose. Likely failure modes: (1) agent groups by both county AND loan_purpose at once without identifying the target county first - produces a table not the requested single answer; (2) agent ignores the 'highest denial rate' constraint and returns the most common loan purpose overall; (3) agent uses raw counts of denials instead of denial rate, picking a high-volume county rather than a high-rate one. The result should be ONE row containing a county name and a loan purpose (or code). If output has >1 row, agent likely failed to filter to a single county. Also worth checking whether the agent applies the same minimum-application threshold that question 4 used - if it doesn't, the 'highest denial rate' county might be a tiny tract with 5 applications all denied, which is statistically meaningless. The agent gets bonus credit (manual review) if it applies a sensible minimum threshold; it passes the basic check if it just answers the question literally."
+  }
+]

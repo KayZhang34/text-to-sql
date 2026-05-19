@@ -1,0 +1,24 @@
+# Secrets
+.env
+.streamlit/secrets.toml
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Data — keep data/hmda.db committed, ignore the large raw/processed source files
+data/raw/
+data/processed/
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

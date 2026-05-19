@@ -1,0 +1,54 @@
+"""Build a small lookup table mapping NY county FIPS codes to county names."""
+import duckdb
+from pathlib import Path
+
+#paths
+PROJECT_ROOT = Path(__file__).parent.parent
+DB_PATH = PROJECT_ROOT / 'data' / 'hmda.db'
+
+# NY county FIPS codes -> names. State prefix 36 + 3-digit county code.
+ny_counties = [
+    (36001, 'Albany'),       (36003, 'Allegany'),     (36005, 'Bronx'),
+    (36007, 'Broome'),       (36009, 'Cattaraugus'),  (36011, 'Cayuga'),
+    (36013, 'Chautauqua'),   (36015, 'Chemung'),      (36017, 'Chenango'),
+    (36019, 'Clinton'),      (36021, 'Columbia'),     (36023, 'Cortland'),
+    (36025, 'Delaware'),     (36027, 'Dutchess'),     (36029, 'Erie'),
+    (36031, 'Essex'),        (36033, 'Franklin'),     (36035, 'Fulton'),
+    (36037, 'Genesee'),      (36039, 'Greene'),       (36041, 'Hamilton'),
+    (36043, 'Herkimer'),     (36045, 'Jefferson'),    (36047, 'Kings'),
+    (36049, 'Lewis'),        (36051, 'Livingston'),   (36053, 'Madison'),
+    (36055, 'Monroe'),       (36057, 'Montgomery'),   (36059, 'Nassau'),
+    (36061, 'New York'),     (36063, 'Niagara'),      (36065, 'Oneida'),
+    (36067, 'Onondaga'),     (36069, 'Ontario'),      (36071, 'Orange'),
+    (36073, 'Orleans'),      (36075, 'Oswego'),       (36077, 'Otsego'),
+    (36079, 'Putnam'),       (36081, 'Queens'),       (36083, 'Rensselaer'),
+    (36085, 'Richmond'),     (36087, 'Rockland'),     (36089, 'St. Lawrence'),
+    (36091, 'Saratoga'),     (36093, 'Schenectady'),  (36095, 'Schoharie'),
+    (36097, 'Schuyler'),     (36099, 'Seneca'),       (36101, 'Steuben'),
+    (36103, 'Suffolk'),      (36105, 'Sullivan'),     (36107, 'Tioga'),
+    (36109, 'Tompkins'),     (36111, 'Ulster'),       (36113, 'Warren'),
+    (36115, 'Washington'),   (36117, 'Wayne'),        (36119, 'Westchester'),
+    (36121, 'Wyoming'),      (36123, 'Yates'),
+]
+
+con = duckdb.connect(str(DB_PATH))
+
+# create table ny_counties with fips_code and county_name columns
+con.execute("""
+    CREATE OR REPLACE TABLE ny_counties (
+        fips_code INTEGER,
+        county_name VARCHAR
+    )
+""")
+
+# insert the mapping data FIPS codes and county names
+con.executemany(
+    "INSERT INTO ny_counties VALUES (?, ?)",
+    ny_counties
+)
+
+# Verify data is present
+print(con.execute("SELECT COUNT(*) FROM ny_counties").fetchone())
+print(con.execute("SELECT * FROM ny_counties LIMIT 5").fetchdf())
+
+con.close()
