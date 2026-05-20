@@ -1,5 +1,4 @@
 """Text-to-SQL agent: convert natural language questions to DuckDB queries."""
-
 import os
 from pathlib import Path
 
@@ -10,14 +9,14 @@ from dotenv import load_dotenv
 # Load API key from .env
 load_dotenv()
 
-# Paths
+# Set path variables
 PROJECT_ROOT = Path(__file__).parent.parent
 DB_PATH = PROJECT_ROOT / 'data' / 'hmda.db'
 
 # Initialize the Claude client
 client = Anthropic()
 
-# Context for schema
+# Write prompt context for schema
 SCHEMA_DESCRIPTION = """
 DuckDB database (hmdb.db) Access with tables: hmda_ny, ny_counties
 
@@ -62,7 +61,7 @@ Key columns:
     - ^If we see some categorical variables with these special values, we should filter them out for some calcualtions of percentages or averages
 - When computing rates by demographic, filter out the "Info not provided"  and "N/A" categories for cleaner results.
 
-(Note: there are many more columns. Use only the ones you need.)
+(Note: there are many columns, but use only the ones you need.)
 
 IMPORTANT - columns to NOT reference:
 - universal_loan_identifier / ULI (redacted for privacy)
@@ -76,11 +75,11 @@ Columns:
 
 When the user asks about counties by name, JOIN hmda_ny to ny_counties.
 When showing county results, prefer county_name over county_code in output.
-
-
-
 """
 
+# Define the tool schema for submitting SQL queries to Claude
+# This is how we tell Claude to give us SQL that we can run directly, without any extra context.
+# The optional "explanation" field is for when context would be helpful, but it should be left out for straightforward queries.
 QUERY_TOOL = {
     "name": "submit_query",
     "description": "Submit a DuckDB SQL query that answers the user's question.",
@@ -109,7 +108,7 @@ QUERY_TOOL = {
 }
 
 
-# prompt base sent to claude
+# base prompt sent to claude, includes "SCHEMA_DESCRIPTION" context and the user's "question" input
 def build_prompt(question: str) -> str:
     """Build the prompt sent to Claude."""
     return f"""You are an expert SQL analyst. Write a single DuckDB SQL query that answers the user's question, and submit it via the submit_query tool.
@@ -126,7 +125,7 @@ Rules:
 """
 
 import re
-
+# Helper function to clean up SQL output. May include markdown code fences or stray non-ASCII characters.
 def clean_sql(raw: str) -> str:
     # Remove markdown code fences (```sql ... ``` or ``` ... ```) and stray non-ASCII characters
     cleaned = re.sub(r'^```(?:sql)?\s*', '', raw.strip(), flags=re.IGNORECASE)
@@ -138,43 +137,80 @@ def clean_sql(raw: str) -> str:
     # Collapse leading whitespace
     return cleaned.strip()
 
-def ask(question: str) -> dict:
+def build_retry_prompt(question: str, failed_sql: str, error: str) -> str:
+    """Build a follow-up prompt that asks the model to fix a failed query."""
+    return f"""You previously generated SQL for the user's question, but it failed when executed against DuckDB. Fix the SQL and submit the corrected version via the submit_query tool.
+
+{SCHEMA_DESCRIPTION}
+
+User question: {question}
+
+Your previous (failed) SQL:
+{failed_sql}
+
+DuckDB error:
+{error}
+
+Rules:
+- Submit a corrected single DuckDB SQL statement via submit_query.
+- Address the specific error above. Common causes: missing FROM clause, wrong column name, type mismatch.
+- Same explanation rules as before — only fill in `explanation` when it adds real value to the user.
+"""
+
+
+def ask(question: str, max_retries: int = 1) -> dict:
     """
     Take a natural language question, generate SQL, run it, return results.
+
+    On execution failure, retries up to `max_retries` times — each retry sends
+    the failed SQL and error back to the model so it can self-correct.
 
     Returns a dict with keys: question, sql, explanation, results (DataFrame), error.
     """
     prompt = build_prompt(question)
+    sql = ""
+    explanation = None
 
-    response = client.messages.create(
-        model='claude-sonnet-4-5',
-        max_tokens=1024,
-        tools=[QUERY_TOOL],
-        tool_choice={"type": "tool", "name": "submit_query"},
-        messages=[{'role': 'user', 'content': prompt}],
-    )
+    for attempt in range(max_retries + 1):
+        response = client.messages.create(
+            model='claude-sonnet-4-5',
+            max_tokens=1024,
+            tools=[QUERY_TOOL],
+            tool_choice={"type": "tool", "name": "submit_query"},
+            messages=[{'role': 'user', 'content': prompt}],
+        )
 
-    # tool_choice forces submit_query, so the tool_use block must exist
-    tool_use = next(b for b in response.content if b.type == "tool_use")
-    sql = clean_sql(tool_use.input["sql"])
-    explanation = tool_use.input.get("explanation")  # None when omitted
+        # tool_choice forces submit_query, so the tool_use block must exist
+        tool_use = next(b for b in response.content if b.type == "tool_use")
+        sql = clean_sql(tool_use.input["sql"])
+        explanation = tool_use.input.get("explanation")  # None when omitted
 
-    try:
-        con = duckdb.connect(str(DB_PATH), read_only=True)
-        results = con.execute(sql).fetchdf()
-        con.close()
-        error = None
-    except Exception as e:
-        results = None
-        error = str(e)
-
-    return {
-        'question': question,
-        'sql': sql,
-        'explanation': explanation,
-        'results': results,
-        'error': error,
-    }
+        try:
+            con = duckdb.connect(str(DB_PATH), read_only=True)
+            results = con.execute(sql).fetchdf()
+            con.close()
+            return {
+                'question': question,
+                'sql': sql,
+                'explanation': explanation,
+                'results': results,
+                'error': None,
+            }
+        except Exception as e:
+            error = str(e)
+            if attempt < max_retries:
+                # Swap in a retry prompt that includes the failed SQL + error,
+                # so the model can self-correct on the next iteration.
+                prompt = build_retry_prompt(question, sql, error)
+                continue
+            # Out of retries — return the failure
+            return {
+                'question': question,
+                'sql': sql,
+                'explanation': explanation,
+                'results': None,
+                'error': error,
+            }
 
 
 # Quick manual test when running this file directly
@@ -184,14 +220,16 @@ if __name__ == '__main__':
         "What was the average loan amount for approved loans?",
         "What counties have the highest denial rates?",
         "What is the average income for applicants in each county?",
-        "How does loan purpose vary by county?"
     ]
     
     for q in test_questions:
+        # formatting w/ line breaks for readability in the console output
         print(f"\n{'='*60}")
         print(f"Q: {q}")
         result = ask(q)
         print(f"\nSQL:\n{result['sql']}")
+
+        # Show explanation only when it's present, to avoid cluttering the output for simple queries that don't need it.
         if result.get('explanation'):
             print(f"\nExplanation:\n{result['explanation']}")
         if result['error']:

@@ -12,13 +12,13 @@ from pathlib import Path
 
 import pandas as pd
 
-# Make src/ importable when running from project root
+# Make src/ importable when running from project root. May package later, but using this for simplicity for now.
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / 'src'))
 
 from agent import ask  # noqa: E402
 
-
+# Paths for questions and results output
 QUESTIONS_PATH = PROJECT_ROOT / 'eval' / 'questions.json'
 RESULTS_DIR = PROJECT_ROOT / 'eval' / 'results'
 
@@ -29,7 +29,6 @@ def check_sql_contains(sql: str, required_substrings: list[str]) -> bool:
         return False
     sql_lower = sql.lower()
     return all(sub.lower() in sql_lower for sub in required_substrings)
-
 
 def check_scalar_result(actual_df: pd.DataFrame, expected_value) -> bool:
     """For questions expecting a single number, compare with tolerance."""
@@ -43,7 +42,6 @@ def check_scalar_result(actual_df: pd.DataFrame, expected_value) -> bool:
         return actual == expected_value
     except Exception:
         return False
-
 
 def check_result_contains(actual_df: pd.DataFrame, expected_substring: str) -> bool:
     """For row/table results, check that the expected substring appears anywhere."""
@@ -90,9 +88,11 @@ def score_question(question: dict, agent_output: dict) -> dict:
         # For adversarial questions: pass if no error and result is empty/sensible
         result_check_pass = error is None
         result_check_detail = "adversarial: agent should not crash"
-
+    
+    # Overall pass is True only if all required checks pass. This feeds the final accuracy, but we keep the individual check results for analysis/debugging.
     overall_pass = sql_check_pass and result_check_pass
 
+    # Return a detailed dict for this question, which will be saved to CSV. Include all relevant info for debugging failures.
     return {
         'id': question['id'],
         'question': question['question'],
@@ -117,6 +117,7 @@ def main():
     print(f"Running {len(questions)} eval questions...\n")
     results = []
 
+    # Run each question through the agent and score it
     for q in questions:
         print(f"  [{q['id']:>2}] {q['question'][:70]}...", end=' ', flush=True)
         try:

@@ -1,10 +1,8 @@
 # text-to-sql
-
-A natural language agent that converts plain English questions into DuckDB SQL and executes them against Home Mortgage Disclosure Act (HMDA) data for New York State (2025).
+A natural language agent that translates questions into DuckDB SQL and executes them against Home Mortgage Disclosure Act (HMDA) data for New York State (2025).
 
 ## What it does
-
-Ask a question in plain English, get back a SQL query and results:
+User asks a question in plain English to get back a SQL query and results:
 
 ```
 "What are the top 5 counties by total application count?"
@@ -33,7 +31,7 @@ cp .env.example .env
 
 ### Build the database
 
-The raw HMDA dataset is not included in the repo. Once you have it at `data/raw/2025_raw.txt`:
+The raw HMDA dataset is not included in the repo, but a link to the government website where you can download is provided below. I saved it in `data/raw/2025_raw.txt`, then you can run the below scripts to get the cleaned DB that this agent queries against:
 
 ```bash
 python scripts/filter_raw.py        # filter to NY-only records → data/processed/
@@ -57,15 +55,13 @@ print(result["error"])    # None if successful
 
 ```
 "What is the total dollar volume of all originated loans?"
-"Top 5 counties with the highest approval rates (min 1,000 applications)?"
 "Compare average loan amount for Manhattan vs Staten Island"
 "What is the approval rate by applicant ethnicity?"
-"What is the most common loan purpose in the county with the highest denial rate?"
 ```
 
 ## Data
 
-**Source:** [CFPB HMDA Data](https://ffiec.cfpb.gov/data-browser/) — 2025 loan application records  
+**Source:** [CFPB HMDA Data](https://ffiec.cfpb.gov/data-publication/modified-lar/2025) — 2025 loan application records  
 **Scope:** New York State only (~430k records, 85 columns)  
 **Database:** DuckDB at `data/hmda.db`
 

@@ -15,21 +15,22 @@ try:
 except Exception:
     pass
 
+# Add src/ to path so we can import agent.py without needing to install the package. May change in the future.
 PROJECT_ROOT = Path(__file__).parent
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from agent import ask  # noqa: E402
 
-
+# List of example questions to show as buttons above the input box.
 EXAMPLE_QUESTIONS = [
-    "How many loans were denied vs approved?",
+    "What is the average loan amount by loan purpose?",
     "Top 5 counties by total application count?",
     "Compare the average loan amount for Manhattan vs Staten Island",
 ]
 
 
 st.set_page_config(
-    page_title="HMDA Text-to-SQL",
+    page_title="Text-to-SQL for NY State Mortgage Data",
     page_icon="🏠",
     layout="wide",
 )
@@ -41,7 +42,7 @@ with st.sidebar:
     st.markdown(
         "Ask plain-English questions about **2025 New York State** mortgage "
         "applications. The agent converts your question to SQL using Claude, "
-        "runs it against a DuckDB database, and shows the result."
+        "runs it against a DuckDB database, and outputs the result."
     )
     st.markdown("---")
     st.markdown("**Data source:** [CFPB HMDA Data Browser](https://ffiec.cfpb.gov/data-browser/)")
@@ -49,31 +50,33 @@ with st.sidebar:
 
     with st.expander("Limitations"):
         st.markdown(
+            "- The agent can make mistakes — always check and validate the generated SQL\n"
             "- New York State only\n"
-            "- 2025 records only (~430k applications)\n"
-            "- The agent can make mistakes — always check the generated SQL"
+            "- 2025 records only (~430k applications)"
         )
 
 
 # Main
 st.title("Text-to-SQL: NY Mortgage Data")
-st.caption("Ask a question about 2025 HMDA mortgage applications in New York State.")
+st.caption("Ask any question about the New York State 2025 HMDA mortgage application dataset.")
 
 # Example chips
-st.markdown("**Try an example:**")
+st.markdown("**Try an example question:**")
 cols = st.columns(len(EXAMPLE_QUESTIONS))
 for col, example in zip(cols, EXAMPLE_QUESTIONS):
-    if col.button(example, use_container_width=True):
+    if col.button(example, width='stretch'):
         st.session_state["question"] = example
 
-question = st.text_input(
-    "Your question",
-    key="question",
-    placeholder="e.g. What is the average loan amount by loan purpose?",
-)
+# Question input form
+with st.form("question_form"):
+    question = st.text_input(
+        "Your question",
+        key="question",
+        placeholder="e.g. What is the average loan amount by loan purpose?",
+    )
+    submitted = st.form_submit_button("Ask", type="primary")
 
-submitted = st.button("Ask", type="primary")
-
+# Handle question submission
 if submitted and question.strip():
     with st.spinner("Generating SQL and running query..."):
         try:
@@ -82,9 +85,11 @@ if submitted and question.strip():
             st.error(f"Agent crashed: {e}")
             st.stop()
 
+    # Show the agent's explanation, if it provided one. Returns None if not available.
     if result.get("explanation"):
         st.info(result["explanation"])
 
+    # Show the generated SQL in an expander.
     with st.expander("Generated SQL", expanded=False):
         st.code(result["sql"], language="sql")
 
@@ -93,8 +98,9 @@ if submitted and question.strip():
     elif result["results"] is None or result["results"].empty:
         st.warning("Query ran successfully but returned no rows.")
     else:
-        st.dataframe(result["results"], use_container_width=True)
+        st.dataframe(result["results"], width='stretch')
         st.caption(f"{len(result['results'])} row(s)")
 
+# If the user submitted the form without entering a question, shows this warning.
 elif submitted:
     st.warning("Please enter a question.")
