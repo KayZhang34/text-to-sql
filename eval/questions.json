@@ -39,7 +39,7 @@
   },
   {
     "id": 5,
-    "question": "Compare the average loan amount for Manhattan vs Staten Island",
+    "question": "Compare the average loan amount for Queens vs Brooklyn",
     "category": "borough_mapping",
     "difficulty": "medium",
     "expected_sql_must_contain": ["JOIN", "ny_counties"],

@@ -42,10 +42,10 @@ Key columns:
 - loan_purpose (INTEGER): 1=home purchase, 2=home improvement, 31=refinance, 32=cash-out refi, 4=other, 5=N/A
 - loan_type (INTEGER): 1=conventional, 2=FHA, 3=VA, 4=USDA
 - denial_reason_1 (INTEGER): primary reason for denial when action_taken=3
-- applicant_ethnicity_1 (codes: 1=Hispanic/Latino, 11-14=subcategories, 
+- applicant_ethnicity_1 (codes: 1=Hispanic/Latino, 11 to 14 are subcategories of 1. 11=Mexican, 12=Puerto Rican, 13=Cuban, 14=Other Hispanic/Latino,
   2=Not Hispanic/Latino, 3=Info not provided, 4=N/A)
-- applicant_race_1 ... applicant_race_5 (codes: 1=American Indian, 2=Asian, 3=Black,
-  4=Native Hawaiian/Pacific Islander, 5=White, 6=Info not provided, 7=N/A).
+- applicant_race_1 ... applicant_race_5 (codes: 1=American Indian, 2=Asian, 21=Asian Indian, 22=Chinese, 23=Filipino, 24=Japanese, 25=Korean, 26=Vietnamese, 27=Other Asian, 3=Black,
+  4=Native Hawaiian/Pacific Islander, 41=Native Hawaiian, 42=Guamanian or Chamorro, 43=Samoan, 44=Other Pacific Islander, 5=White, 6=Info not provided, 7=N/A).
   Up to 5 race codes can be reported per applicant. To find applicants who
   identified with more than one race, filter on applicant_race_2 IS NOT NULL.
   The same _1.._5 multi-value pattern applies to applicant_ethnicity and to
@@ -53,10 +53,9 @@ Key columns:
 - applicant_sex (codes: 1=Male, 2=Female, 3=Info not provided, 4=N/A, 6=Both selected)
 - co_applicant_ethnicity_1, co_applicant_race_1, co_applicant_sex: same code system
   as the applicant_* equivalents, plus one extra value:
-    5 = No co-applicant
-  Use co_applicant_sex = 5 (or co_applicant_race_1 = 5) to find applications with
-  no co-applicant. These columns are NOT null when there is no co-applicant —
-  they use the sentinel code 5.
+    5 = No co-applicant for ethncity and sex. 8 = No co-app for race
+  Use co_applicant_sex = 5 (or co_applicant_race_1 = 8) to find applications with
+  no co-applicant. These columns are NOT null when there is no co-applicant.
 - There are special values to filter out 1111 = 'Exempt' and 8888 = 'Not Available' for some fields like aus_1 to aus_5.
     - ^If we see some categorical variables with these special values, we should filter them out for some calcualtions of percentages or averages
 - When computing rates by demographic, filter out the "Info not provided"  and "N/A" categories for cleaner results.

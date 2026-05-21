@@ -4,6 +4,8 @@ import os
 import sys
 from pathlib import Path
 
+import altair as alt
+import pandas as pd
 import streamlit as st
 
 # On Streamlit Cloud, the API key lives in st.secrets. Locally, it's in .env
@@ -21,11 +23,49 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from agent import ask  # noqa: E402
 
+
+def pick_chart(df):
+    """Return (chart_type, kwargs) or None based on DataFrame shape.
+
+    Heuristics:
+      - 1x1 result → "metric" (single big number)
+      - 1 row with up to 4 columns → "metric_row" (side-by-side metrics)
+      - Multi-row with a string col + numeric col, ≤20 rows → "bar"
+      - Otherwise → None (just show the table)
+    """
+    if df.empty:
+        return None
+
+    n_rows, n_cols = df.shape
+
+    if n_rows == 1 and n_cols == 1:
+        return ("metric", {"label": df.columns[0], "value": df.iloc[0, 0]})
+
+    if n_rows == 1 and n_cols <= 4:
+        return ("metric_row", {})
+
+    # Treat anything non-numeric as categorical — this handles object,
+    # "string", pyarrow strings, pandas 3.0's "str" dtype, etc.
+    num_cols = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
+    cat_cols = [c for c in df.columns if c not in num_cols]
+    if cat_cols and num_cols and n_rows <= 20:
+        return ("bar", {"x": cat_cols[0], "y": num_cols[0]})
+
+    return None
+
+
+def _fmt(val):
+    """Format a value for display in st.metric — comma-separate numbers."""
+    if isinstance(val, (int, float)):
+        return f"{val:,}"
+    return str(val)
+
+
 # List of example questions to show as buttons above the input box.
 EXAMPLE_QUESTIONS = [
-    "What is the average loan amount by loan purpose?",
+    "How many loans with no co-applicant?",
     "Top 5 counties by total application count?",
-    "Compare the average loan amount for Manhattan vs Staten Island",
+    "Compare the average loan amount for Queens vs Brooklyn",
 ]
 
 
@@ -98,8 +138,47 @@ if submitted and question.strip():
     elif result["results"] is None or result["results"].empty:
         st.warning("Query ran successfully but returned no rows.")
     else:
-        st.dataframe(result["results"], width='stretch')
-        st.caption(f"{len(result['results'])} row(s)")
+        df = result["results"]
+
+        # Try to auto-generate a chart based on the result shape
+        chart = pick_chart(df)
+        if chart:
+            chart_type, kwargs = chart
+            if chart_type == "metric":
+                st.metric(kwargs["label"], _fmt(kwargs["value"]))
+            elif chart_type == "metric_row":
+                cols = st.columns(len(df.columns))
+                for col, name in zip(cols, df.columns):
+                    col.metric(name, _fmt(df.iloc[0][name]))
+            elif chart_type == "bar":
+                bar = (
+                    alt.Chart(df)
+                    .mark_bar(color="#2e74c0")
+                    .encode(
+                        x=alt.X(
+                            kwargs["x"],
+                            sort="-y",  # bars ordered by value descending
+                            axis=alt.Axis(
+                                labelFontSize=14,
+                                labelFontWeight="bold",
+                                titleFontSize=14,
+                                labelAngle=-30,  # rotate so long county names don't overlap
+                            ),
+                        ),
+                        y=alt.Y(
+                            kwargs["y"],
+                            axis=alt.Axis(labelFontSize=12, titleFontSize=14),
+                        ),
+                    )
+                    .properties(height=400)
+                )
+                st.altair_chart(bar, width='stretch')
+
+        # Always show the underlying table — collapsed if we drew a chart,
+        # expanded if we didn't so the user still sees the data.
+        with st.expander("Show data table", expanded=(chart is None)):
+            st.dataframe(df, width='stretch')
+            st.caption(f"{len(df)} row(s)")
 
 # If the user submitted the form without entering a question, shows this warning.
 elif submitted:
