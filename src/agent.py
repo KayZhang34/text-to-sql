@@ -100,6 +100,43 @@ QUERY_TOOL = {
                     "SQL is self-explanatory — do not pad with summaries of what the "
                     "query does."
                 )
+            },
+            "chart": {
+                "type": "object",
+                "description": (
+                    "Optional. Provide a chart spec when a visualization meaningfully "
+                    "helps the user understand the result. Pick the type based on the "
+                    "question's intent and the expected result shape: "
+                    "'metric' for a single number (e.g. 'how many total denials?'), "
+                    "'metric_row' for one row with a handful of numbers shown side-by-side "
+                    "(e.g. 'how many approved vs denied vs withdrawn?'), "
+                    "'bar' for a category breakdown (e.g. 'top counties by X', "
+                    "'distribution of loan purposes'), 'line' for trends over an "
+                    "ordered axis. Omit chart entirely when the result is a wide table, "
+                    "raw record listing, or otherwise not chart-friendly. For 'bar' and "
+                    "'line', `x` and `y` must reference actual column names from the SQL output; "
+                    "`x` should be the label/category column and `y` the measure (count, sum, "
+                    "rate, etc.) — never put an ID/code column on `y`."
+                ),
+                "properties": {
+                    "type": {
+                        "type": "string",
+                        "enum": ["bar", "line", "metric", "metric_row"]
+                    },
+                    "x": {
+                        "type": "string",
+                        "description": "Column name for the x-axis. Required for 'bar' and 'line'."
+                    },
+                    "y": {
+                        "type": "string",
+                        "description": "Column name for the y-axis (the measure). Required for 'bar' and 'line'."
+                    },
+                    "title": {
+                        "type": "string",
+                        "description": "Optional short chart title."
+                    }
+                },
+                "required": ["type"]
             }
         },
         "required": ["sql"]
@@ -121,6 +158,7 @@ Rules:
 - If the question is ambiguous, make a reasonable assumption and surface it in the explanation field.
 - For percentages or rates, use ROUND(... * 100, 2) for readability.
 - Only fill in `explanation` when it adds value (assumption made, caveat about the result, dataset coverage limitation, or non-obvious reasoning). Leave it out for straightforward queries.
+- Provide a `chart` spec when a visualization helps. For category breakdowns include only the human-readable label column (not the raw code) in the SELECT, and reference it as `x`; reference the measure (count/sum/avg/rate) as `y`. Omit `chart` for results that are better shown as a table.
 """
 
 import re
@@ -183,6 +221,7 @@ def ask(question: str, max_retries: int = 1) -> dict:
         tool_use = next(b for b in response.content if b.type == "tool_use")
         sql = clean_sql(tool_use.input["sql"])
         explanation = tool_use.input.get("explanation")  # None when omitted
+        chart = tool_use.input.get("chart")  # None when omitted
 
         try:
             con = duckdb.connect(str(DB_PATH), read_only=True)
@@ -192,6 +231,7 @@ def ask(question: str, max_retries: int = 1) -> dict:
                 'question': question,
                 'sql': sql,
                 'explanation': explanation,
+                'chart': chart,
                 'results': results,
                 'error': None,
             }
@@ -207,6 +247,7 @@ def ask(question: str, max_retries: int = 1) -> dict:
                 'question': question,
                 'sql': sql,
                 'explanation': explanation,
+                'chart': chart,
                 'results': None,
                 'error': error,
             }

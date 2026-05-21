@@ -24,14 +24,11 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 from agent import ask  # noqa: E402
 
 
-def pick_chart(df):
-    """Return (chart_type, kwargs) or None based on DataFrame shape.
+def fallback_chart(df):
+    """Lightweight heuristic used when the model didn't supply a chart spec.
 
-    Heuristics:
-      - 1x1 result → "metric" (single big number)
-      - 1 row with up to 4 columns → "metric_row" (side-by-side metrics)
-      - Multi-row with a string col + numeric col, ≤20 rows → "bar"
-      - Otherwise → None (just show the table)
+    Returns a chart dict matching the same shape the model would return
+    ({"type": ..., "x": ..., "y": ...}) or None.
     """
     if df.empty:
         return None
@@ -39,17 +36,17 @@ def pick_chart(df):
     n_rows, n_cols = df.shape
 
     if n_rows == 1 and n_cols == 1:
-        return ("metric", {"label": df.columns[0], "value": df.iloc[0, 0]})
+        return {"type": "metric"}
 
     if n_rows == 1 and n_cols <= 4:
-        return ("metric_row", {})
+        return {"type": "metric_row"}
 
-    # Treat anything non-numeric as categorical — this handles object,
-    # "string", pyarrow strings, pandas 3.0's "str" dtype, etc.
+    # Treat anything non-numeric as categorical — handles object, "string",
+    # pyarrow strings, pandas 3.0's "str" dtype, etc.
     num_cols = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
     cat_cols = [c for c in df.columns if c not in num_cols]
     if cat_cols and num_cols and n_rows <= 20:
-        return ("bar", {"x": cat_cols[0], "y": num_cols[0]})
+        return {"type": "bar", "x": cat_cols[0], "y": num_cols[-1]}
 
     return None
 
@@ -82,7 +79,7 @@ with st.sidebar:
     st.markdown(
         "Ask plain-English questions about **2025 New York State** mortgage "
         "applications. The agent converts your question to SQL using Claude, "
-        "runs it against a DuckDB database, and outputs the result."
+        "runs it against a DuckDB database, and outputs the result as both a chart (when applicable) and a table."
     )
     st.markdown("---")
     st.markdown("**Data source:** [CFPB HMDA Data Browser](https://ffiec.cfpb.gov/data-browser/)")
@@ -140,42 +137,58 @@ if submitted and question.strip():
     else:
         df = result["results"]
 
-        # Try to auto-generate a chart based on the result shape
-        chart = pick_chart(df)
+        # Prefer the model's chart spec; fall back to the heuristic if it omitted one.
+        chart = result.get("chart") or fallback_chart(df)
+
         if chart:
-            chart_type, kwargs = chart
+            chart_type = chart.get("type")
+
             if chart_type == "metric":
-                st.metric(kwargs["label"], _fmt(kwargs["value"]))
+                # Use the single value in the first cell
+                label = df.columns[0]
+                value = df.iloc[0, 0]
+                st.metric(label, _fmt(value))
+
             elif chart_type == "metric_row":
                 cols = st.columns(len(df.columns))
                 for col, name in zip(cols, df.columns):
                     col.metric(name, _fmt(df.iloc[0][name]))
-            elif chart_type == "bar":
-                bar = (
-                    alt.Chart(df)
-                    .mark_bar(color="#2e74c0")
-                    .encode(
-                        x=alt.X(
-                            kwargs["x"],
-                            sort="-y",  # bars ordered by value descending
-                            axis=alt.Axis(
-                                labelFontSize=14,
-                                labelFontWeight="bold",
-                                titleFontSize=14,
-                                labelAngle=-30,  # rotate so long county names don't overlap
-                            ),
-                        ),
-                        y=alt.Y(
-                            kwargs["y"],
-                            axis=alt.Axis(labelFontSize=12, titleFontSize=14),
-                        ),
-                    )
-                    .properties(height=400)
-                )
-                st.altair_chart(bar, width='stretch')
 
-        # Always show the underlying table — collapsed if we drew a chart,
-        # expanded if we didn't so the user still sees the data.
+            elif chart_type in ("bar", "line"):
+                x_col = chart.get("x")
+                y_col = chart.get("y")
+                # Guard against the model picking a column name that isn't in the result
+                if x_col in df.columns and y_col in df.columns:
+                    mark = alt.Chart(df).mark_bar(color="#2e74c0") if chart_type == "bar" else alt.Chart(df).mark_line(point=True)
+                    chart_obj = (
+                        mark.encode(
+                            x=alt.X(
+                                x_col,
+                                sort="-y" if chart_type == "bar" else None,
+                                axis=alt.Axis(
+                                    labelFontSize=14,
+                                    labelFontWeight="bold",
+                                    titleFontSize=14,
+                                    labelAngle=-30,
+                                ),
+                            ),
+                            y=alt.Y(
+                                y_col,
+                                axis=alt.Axis(labelFontSize=12, titleFontSize=14),
+                            ),
+                        )
+                        .properties(
+                            height=400,
+                            title=chart.get("title") or "",
+                        )
+                    )
+                    st.altair_chart(chart_obj, width='stretch')
+                else:
+                    # Model picked invalid columns — skip chart, show the table
+                    chart = None
+
+        # Always show the underlying table — collapsed if a chart rendered,
+        # expanded if not so the user still sees the data.
         with st.expander("Show data table", expanded=(chart is None)):
             st.dataframe(df, width='stretch')
             st.caption(f"{len(df)} row(s)")
