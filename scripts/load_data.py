@@ -1,7 +1,16 @@
+import os
 import duckdb
 
+# Start from a clean file each run — DuckDB doesn't shrink files after
+# DROP TABLE / CREATE OR REPLACE, so re-running on an existing file would
+# accumulate dead space. Deleting first guarantees the output matches the
+# actual data size and makes the script idempotent.
+DB_PATH = 'data/hmda.db'
+if os.path.exists(DB_PATH):
+    os.remove(DB_PATH)
+
 # connect/create a database file
-con = duckdb.connect('data/hmda.db')
+con = duckdb.connect(DB_PATH)
 
 # Step 1: Load CSV as-is (everything stays VARCHAR per read_csv_auto)
 con.execute("""
@@ -56,4 +65,5 @@ print(con.execute("SELECT COUNT(*) FROM hmda_ny").fetchone())
 print(con.execute("SELECT * FROM hmda_ny LIMIT 10").fetchdf())
 print(con.execute("DESCRIBE hmda_ny").fetchdf())
 
+con.execute("CHECKPOINT")
 con.close()
