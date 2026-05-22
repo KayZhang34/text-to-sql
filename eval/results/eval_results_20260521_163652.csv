@@ -1,0 +1,175 @@
+id,question,category,difficulty,pass,sql_check_pass,result_check_pass,sql_check_detail,result_check_detail,generated_sql,explanation,error
+1,How many loans were denied vs approved?,simple_aggregation,easy,True,True,True,"required: ['action_taken', 'GROUP BY']",no result check required,"SELECT 
+    CASE 
+        WHEN action_taken = 1 THEN 'Approved (Loan Originated)'
+        WHEN action_taken = 3 THEN 'Denied'
+    END AS outcome,
+    COUNT(*) AS count
+FROM hmda_ny
+WHERE action_taken IN (1, 3)
+GROUP BY action_taken
+ORDER BY action_taken","Comparing action_taken=1 (Loan originated, which represents approved and closed loans) vs action_taken=3 (Application denied). Note that action_taken=2 (approved but not accepted by applicant) could also be considered 'approved' but is excluded here as the primary interpretation of 'approved' in HMDA data refers to loans that actually originated.",
+2,What is the total dollar volume of all originated loans?,filtered_aggregation,easy,True,True,True,"required: ['SUM', 'loan_amount', 'action_taken = 1']",expected 116181685000,"SELECT 
+  SUM(loan_amount) AS total_loan_volume
+FROM hmda_ny
+WHERE action_taken = 1",Filtering for action_taken = 1 (Loan originated) to count only loans that were approved and closed.,
+3,Top 5 counties by total application count?,join_and_group,medium,True,True,True,"required: ['JOIN', 'ny_counties', 'GROUP BY', 'LIMIT 5']",expected to contain 'Suffolk',"SELECT 
+    c.county_name,
+    COUNT(*) as application_count
+FROM hmda_ny h
+JOIN ny_counties c ON h.county_code = c.fips_code
+GROUP BY c.county_name
+ORDER BY application_count DESC
+LIMIT 5",,
+4,"Top 5 counties with the highest approval rates, among counties with at least 1,000 applications",join_with_having,hard,True,True,True,"required: ['JOIN', 'HAVING', '1000']",no result check required,"WITH county_stats AS (
+  SELECT 
+    c.county_name,
+    COUNT(*) AS total_applications,
+    SUM(CASE WHEN h.action_taken = 1 THEN 1 ELSE 0 END) AS approved_applications,
+    ROUND(SUM(CASE WHEN h.action_taken = 1 THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 2) AS approval_rate
+  FROM hmda_ny h
+  JOIN ny_counties c ON h.county_code = c.fips_code
+  GROUP BY c.county_name
+  HAVING COUNT(*) >= 1000
+)
+SELECT 
+  county_name,
+  total_applications,
+  approved_applications,
+  approval_rate
+FROM county_stats
+ORDER BY approval_rate DESC
+LIMIT 5","Approval rate is calculated as the percentage of applications with action_taken = 1 (Loan originated) out of all applications. Only counties with at least 1,000 applications are included.",
+5,Compare the average loan amount for Queens vs Brooklyn,borough_mapping,medium,True,True,True,"required: ['JOIN', 'ny_counties']",no result check required,"SELECT 
+    c.county_name,
+    ROUND(AVG(h.loan_amount), 2) AS avg_loan_amount
+FROM hmda_ny h
+JOIN ny_counties c ON h.county_code = c.fips_code
+WHERE c.county_name IN ('Queens', 'Kings')
+GROUP BY c.county_name
+ORDER BY avg_loan_amount DESC","Brooklyn's FIPS county name is 'Kings' in the ny_counties table, so the query filters for 'Queens' and 'Kings' to compare these two boroughs.",
+6,Show me the distribution of loan purposes as a percentage of all applications,percentage_distribution,medium,True,True,True,"required: ['loan_purpose', 'GROUP BY']",no result check required,"WITH loan_purpose_labels AS (
+  SELECT 
+    CASE 
+      WHEN loan_purpose = 1 THEN 'Home purchase'
+      WHEN loan_purpose = 2 THEN 'Home improvement'
+      WHEN loan_purpose = 31 THEN 'Refinance'
+      WHEN loan_purpose = 32 THEN 'Cash-out refinance'
+      WHEN loan_purpose = 4 THEN 'Other'
+      WHEN loan_purpose = 5 THEN 'N/A'
+      ELSE 'Unknown'
+    END AS loan_purpose_name,
+    COUNT(*) AS application_count
+  FROM hmda_ny
+  GROUP BY loan_purpose
+),
+total_count AS (
+  SELECT COUNT(*) AS total_applications FROM hmda_ny
+)
+SELECT 
+  loan_purpose_name,
+  application_count,
+  ROUND(application_count * 100.0 / total_applications, 2) AS percentage
+FROM loan_purpose_labels
+CROSS JOIN total_count
+ORDER BY application_count DESC",,
+7,What is the average loan amount by applicant age group?,categorical_grouping,medium,True,True,True,"required: ['applicant_age', 'AVG', 'GROUP BY']",no result check required,"SELECT 
+    applicant_age,
+    ROUND(AVG(loan_amount), 2) AS avg_loan_amount
+FROM hmda_ny
+WHERE applicant_age IS NOT NULL 
+    AND applicant_age NOT IN ('8888', '9999')
+    AND loan_amount IS NOT NULL
+GROUP BY applicant_age
+ORDER BY applicant_age","
+The HMDA dataset reports applicant age in bracketed groups (e.g., '25-34', '35-44', '<25', '>74') rather than exact ages. Filtered out special codes '8888' (Not Available) and '9999' (not applicable) for cleaner results.
+",
+8,What is the approval rate by primary applicant ethnicity?,demographic_analysis,hard,True,True,True,"required: ['applicant_ethnicity_1', 'GROUP BY']",no result check required,"WITH ethnicity_labels AS (
+  SELECT 
+    CASE 
+      WHEN applicant_ethnicity_1 = 1 THEN 'Hispanic or Latino'
+      WHEN applicant_ethnicity_1 = 2 THEN 'Not Hispanic or Latino'
+      WHEN applicant_ethnicity_1 = 3 THEN 'Info not provided'
+      WHEN applicant_ethnicity_1 = 4 THEN 'N/A'
+      ELSE 'Other'
+    END AS ethnicity,
+    action_taken
+  FROM hmda_ny
+  WHERE applicant_ethnicity_1 IN (1, 2)
+)
+SELECT 
+  ethnicity,
+  COUNT(*) AS total_applications,
+  SUM(CASE WHEN action_taken = 1 THEN 1 ELSE 0 END) AS approved,
+  ROUND(SUM(CASE WHEN action_taken = 1 THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 2) AS approval_rate
+FROM ethnicity_labels
+GROUP BY ethnicity
+ORDER BY approval_rate DESC","Approval rate is calculated as loan originations (action_taken = 1) divided by total applications. Filtered out ""Info not provided"" and ""N/A"" categories for cleaner demographic analysis. Note that ethnicity codes 11-14 are subcategories of code 1 (Hispanic/Latino) and are included in the Hispanic or Latino group.",
+9,"How many applications came from applicants with income above 200,000 dollars?",unit_handling,medium,True,True,True,required: ['income'],expected 96103,"SELECT COUNT(*) AS application_count
+FROM hmda_ny
+WHERE income > 200","The income column is stored in thousands of dollars, so 200 represents $200,000.",
+10,How many applications are from 2024?,out_of_scope,adversarial,True,True,True,no SQL check required,expected 0,SELECT COUNT(*) AS applications_from_2024 FROM hmda_ny WHERE activity_year = 2024,"The dataset description states that activity_year is always 2025 for this dataset. The query checks for 2024 applications, but none are expected to exist based on the dataset specification.",
+11,How many applications had no co-applicant?,null_reasoning,medium,True,True,True,required: ['co_applicant'],no result check required,"SELECT COUNT(*) AS applications_with_no_co_applicant
+FROM hmda_ny
+WHERE co_applicant_sex = 5","Using co_applicant_sex = 5 to identify applications with no co-applicant, as specified in the schema documentation.",
+12,How many applicants identified as more than one race?,multi_value_column_reasoning,hard,True,True,True,required: ['applicant_race_2'],no result check required,"SELECT COUNT(*) AS applicants_with_multiple_races
+FROM hmda_ny
+WHERE applicant_race_2 IS NOT NULL","Counting applicants who identified as more than one race by checking if applicant_race_2 is not null, indicating that a second race was reported beyond the primary race in applicant_race_1.",
+13,Compare loan application volume between 2023 and 2025,partial_out_of_scope,adversarial,True,True,True,required: ['activity_year'],no result check required,"SELECT 
+    '2025' as year,
+    COUNT(*) as application_volume
+FROM hmda_ny
+WHERE activity_year = 2025","The hmda_ny table only contains 2025 data (activity_year is always 2025). There is no 2023 data available in this database to compare against. The query returns the 2025 application volume, but a comparison with 2023 cannot be performed with the available data.",
+14,Show me the high earners,ambiguous_input,hard,True,True,True,required: ['income'],no result check required,"SELECT 
+    income,
+    loan_amount,
+    property_value,
+    county_code,
+    action_taken,
+    loan_purpose,
+    applicant_ethnicity_1,
+    applicant_race_1,
+    applicant_sex
+FROM hmda_ny
+WHERE income IS NOT NULL
+ORDER BY income DESC
+LIMIT 100","Assumed ""high earners"" means applicants with the highest reported income. Showing the top 100 records by income along with key loan characteristics. Income is reported in thousands of dollars in this dataset.",
+15,What is the most common loan purpose in the county with the highest denial rate?,multi_step_reasoning,hard,True,True,True,"required: ['loan_purpose', 'JOIN', 'ny_counties']",no result check required,"WITH county_denial_rates AS (
+  SELECT 
+    h.county_code,
+    c.county_name,
+    COUNT(*) AS total_applications,
+    SUM(CASE WHEN h.action_taken = 3 THEN 1 ELSE 0 END) AS denials,
+    ROUND(SUM(CASE WHEN h.action_taken = 3 THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 2) AS denial_rate
+  FROM hmda_ny h
+  LEFT JOIN ny_counties c ON h.county_code = c.fips_code
+  GROUP BY h.county_code, c.county_name
+),
+highest_denial_county AS (
+  SELECT county_code
+  FROM county_denial_rates
+  ORDER BY denial_rate DESC
+  LIMIT 1
+),
+loan_purpose_counts AS (
+  SELECT 
+    CASE 
+      WHEN h.loan_purpose = 1 THEN 'Home Purchase'
+      WHEN h.loan_purpose = 2 THEN 'Home Improvement'
+      WHEN h.loan_purpose = 31 THEN 'Refinance'
+      WHEN h.loan_purpose = 32 THEN 'Cash-Out Refinance'
+      WHEN h.loan_purpose = 4 THEN 'Other'
+      WHEN h.loan_purpose = 5 THEN 'N/A'
+      ELSE 'Unknown'
+    END AS loan_purpose,
+    COUNT(*) AS count
+  FROM hmda_ny h
+  WHERE h.county_code = (SELECT county_code FROM highest_denial_county)
+  GROUP BY h.loan_purpose
+  ORDER BY count DESC
+  LIMIT 1
+)
+SELECT 
+  loan_purpose,
+  count
+FROM loan_purpose_counts","This query first identifies the county with the highest denial rate (action_taken = 3), then finds the most common loan_purpose in that county by counting all applications regardless of outcome.",

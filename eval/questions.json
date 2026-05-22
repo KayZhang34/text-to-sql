@@ -99,7 +99,7 @@
     "difficulty": "medium",
     "expected_sql_must_contain": ["co_applicant"],
     "expected_result_type": "scalar",
-    "notes": "Tests whether the agent knows the 'no co-applicant' convention in HMDA. Correct approach: filter on co_applicant_sex = 5 (No co-applicant). Alternative valid: co_applicant_ethnicity_1 = 5 or co_applicant_race_1 = 5. Agent may incorrectly try IS NULL, which won't work because these are coded values, not nulls. The strict SQL check requires 'co_applicant' as a substring; the deeper check is whether the agent uses code 5 vs. NULL. Anything filtering on the right column but wrong value should still fail because the count will be wildly different from the true value."
+    "notes": "Tests whether the agent knows the 'no co-applicant' convention in HMDA. Correct approach: filter on co_applicant_sex = 5 (No co-applicant). Alternative valid: co_applicant_ethnicity_1 = 5 or co_applicant_race_1 = 8. Agent may incorrectly try IS NULL, which won't work because these are coded values, not nulls. The strict SQL check requires 'co_applicant' as a substring; the deeper check is whether the agent uses code 5 vs. NULL. Anything filtering on the right column but wrong value should still fail because the count will be wildly different from the true value."
   },
   {
     "id": 12,
