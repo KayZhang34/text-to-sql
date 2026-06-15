@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cd /c/Users/kzhang/Documents/Professional/Projects/NBA-Draft-Explorationv2 && find . -type f -name \"*.md\" -o -name \"*.json\" -o -name \"*.txt\" | head -30)",
+      "Bash(py -c ' *)",
+      "Bash(py -m pip install xlrd -q)"
+    ]
+  }
+}

@@ -44,6 +44,8 @@ Key columns:
 - denial_reason_1 (INTEGER): primary reason for denial when action_taken=3
 - applicant_ethnicity_1 (codes: 1=Hispanic/Latino, 11 to 14 are subcategories of 1. 11=Mexican, 12=Puerto Rican, 13=Cuban, 14=Other Hispanic/Latino,
   2=Not Hispanic/Latino, 3=Info not provided, 4=N/A)
+- ^Categories 2, 3, and 4 are not very meaningful and often have high counts. Only use ethnicity when the user specifically asks.
+  Otherwise use race. Or return the ethnicity query but include an explanation about the data quality issues and point them towards asking about race.
 - applicant_race_1 ... applicant_race_5 (codes: 1=American Indian, 2=Asian, 21=Asian Indian, 22=Chinese, 23=Filipino, 24=Japanese, 25=Korean, 26=Vietnamese, 27=Other Asian, 3=Black,
   4=Native Hawaiian/Pacific Islander, 41=Native Hawaiian, 42=Guamanian or Chamorro, 43=Samoan, 44=Other Pacific Islander, 5=White, 6=Info not provided, 7=N/A).
   Up to 5 race codes can be reported per applicant. To find applicants who

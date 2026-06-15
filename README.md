@@ -2,7 +2,7 @@
 
 A natural-language agent that converts plain-English questions into DuckDB SQL and executes them against Home Mortgage Disclosure Act (HMDA) data for New York State (2025). Includes a Streamlit web app for end users and an evaluation harness for measuring agent accuracy.
 
-> **Live demo:** [your-app-name.streamlit.app](https://your-app-name.streamlit.app)
+> **Live demo:** [https://hmda-ny-text-to-sql.streamlit.app/](https://hmda-ny-text-to-sql.streamlit.app/)
 
 ## What it does
 
@@ -15,6 +15,13 @@ Ask a question in plain English, get back a SQL query the agent wrote and the re
 ```
 
 Under the hood, the agent uses Claude's tool-use API to return a SQL query plus an optional explanation and an optional chart spec. If a query fails to execute, the agent self-corrects on a retry by feeding the error back to the model.
+
+## Key design choices:
+
+- **Tool-use over text parsing.** The model returns a structured response through a defined schema, not free-form text. Adding new fields (like the chart spec) is a one-line schema change instead of new parsing logic.
+- **Model picks the chart, app renders it.** The model semantically understands the question's intent ("distribution of X" → bar chart), so it picks chart type and column mapping. A column-name heuristic (`fallback_chart`) is a safety net for when the model omits the spec.
+- **Self-correcting on execution error.** A single retry feeds the failed SQL + DuckDB error back into the prompt, so the model can fix its own mistakes (missing FROM clauses, wrong column names, type mismatches).
+- **Altair / Vega-Lite for charts.** Declarative chart specs map naturally to LLM-generated configs. Same rendering engine as Hex, Streamlit, and most modern data tools.
 
 ## Running the app
 
@@ -67,6 +74,14 @@ print(result["chart"])        # optional chart spec dict (or None)
 print(result["error"])        # None if successful
 ```
 
+A `chart` value, when present, looks like:
+
+```python
+{"type": "bar", "x": "county_name", "y": "application_count", "title": "Top Counties"}
+```
+
+Where `type` is one of `bar`, `line`, `metric`, or `metric_row`. The `x` and `y` reference column names from the SQL result. `title` is optional.
+
 ### Example questions
 
 ```
@@ -101,7 +116,7 @@ Questions are defined in [`eval/questions.json`](eval/questions.json). Results C
 ## Project structure
 
 ```
-app.py                       # Streamlit web app entry point
+app.py                       # Streamlit web app entry point + chart rendering
 src/
   agent.py                   # core ask() function — Claude tool-use, retries, schema prompt
 eval/
@@ -118,4 +133,10 @@ data/
   hmda.db                    # DuckDB database
 notebooks/
   01_explore_data.ipynb
+requirements.txt             # deploy-only deps (streamlit, anthropic, duckdb, pandas, python-dotenv)
+.env.example                 # template for ANTHROPIC_API_KEY
 ```
+
+## Stack
+
+Python · Claude API (tool use) · DuckDB · Streamlit · Pandas · Altair (Vega-Lite) · Streamlit Cloud
